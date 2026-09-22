@@ -214,7 +214,7 @@ export default function App() {
       <header className="topbar">
         <div className="brand">
           <span className="brand-mark">⌖</span>
-          <span>pin atlas Isha</span>
+          <span>pin atlas</span>
         </div>
         <div className="saved-state">
           <i></i>
@@ -312,7 +312,14 @@ export default function App() {
             }
           />
           <div className="map-tip">Click to place a pin</div>
-          <a className="map-credit" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap</a>
+          <a
+            className="map-credit"
+            href="https://www.openstreetmap.org/copyright"
+            target="_blank"
+            rel="noreferrer"
+          >
+            © OpenStreetMap
+          </a>
         </section>
         <aside className="details-panel">
           {activePin ? (
