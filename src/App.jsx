@@ -78,11 +78,9 @@ function MapView({ pins, activeId, showMapCard, onDrop, onSelect, onMove }) {
       minZoom={2}
       className="map"
       worldCopyJump
+      attributionControl={false}
     >
-      <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-      />
+      <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
       <PinDropper onDrop={onDrop} />
       {pins.map((pin) => (
         <Marker
@@ -314,6 +312,7 @@ export default function App() {
             }
           />
           <div className="map-tip">Click to place a pin</div>
+          <a className="map-credit" href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap</a>
         </section>
         <aside className="details-panel">
           {activePin ? (
