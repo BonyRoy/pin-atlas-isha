@@ -3,50 +3,22 @@ import {
   MapContainer,
   Marker,
   TileLayer,
-  Tooltip,
   useMapEvents,
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./App.css";
+import { getPins, persistPins } from "./db";
+import ConfirmModal, { TrashIcon } from "./ConfirmModal";
+import Dashboard from "./Dashboard";
+import Home from "./Home";
+import LeaderCards from "./LeaderCards";
+import MyData from "./MyData";
 
-const DB_NAME = "pin-atlas";
-const STORE_NAME = "pins";
-
-function openDatabase() {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 1);
-    request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains(STORE_NAME))
-        request.result.createObjectStore(STORE_NAME, { keyPath: "id" });
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-async function getPins() {
-  const db = await openDatabase();
-  return new Promise((resolve, reject) => {
-    const request = db
-      .transaction(STORE_NAME, "readonly")
-      .objectStore(STORE_NAME)
-      .getAll();
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-async function persistPins(pins) {
-  const db = await openDatabase();
-  const transaction = db.transaction(STORE_NAME, "readwrite");
-  const store = transaction.objectStore(STORE_NAME);
-  store.clear();
-  pins.forEach((pin) => store.put(pin));
-  return new Promise((resolve, reject) => {
-    transaction.oncomplete = resolve;
-    transaction.onerror = () => reject(transaction.error);
-  });
+function getPageFromHash() {
+  const hash = window.location.hash.replace(/^#\/?/, "");
+  if (hash === "maps" || hash === "data" || hash === "dashboard") return hash;
+  return "home";
 }
 
 const blankPin = (lat = 20, lng = 0, title = "Untitled place") => ({
@@ -92,33 +64,16 @@ function MapView({ pins, activeId, showMapCard, onDrop, onSelect, onMove }) {
             click: () => onSelect(pin.id),
             dragend: (event) => onMove(pin.id, event.target.getLatLng()),
           }}
-        >
-          {showMapCard && (
-            <Tooltip
-              permanent
-              direction="top"
-              offset={[0, -35]}
-              className="map-card-tooltip"
-              opacity={1}
-              interactive
-            >
-              <article className="map-card" style={{ borderColor: pin.color }}>
-                <div className="map-card-top">
-                  <span style={{ background: pin.color }}></span>
-                  <strong>{pin.title || "Untitled place"}</strong>
-                </div>
-                {pin.image && <img src={pin.image} alt="" />}
-                <p>{pin.description}</p>
-              </article>
-            </Tooltip>
-          )}
-        </Marker>
+        />
       ))}
+      {showMapCard && (
+        <LeaderCards pins={pins} activeId={activeId} onSelect={onSelect} />
+      )}
     </MapContainer>
   );
 }
 
-export default function App() {
+function MapWorkspace() {
   const [pins, setPins] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [loaded, setLoaded] = useState(false);
@@ -126,6 +81,7 @@ export default function App() {
   const [search, setSearch] = useState("");
   const [searchState, setSearchState] = useState("");
   const [showMapCard, setShowMapCard] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     getPins()
@@ -154,9 +110,14 @@ export default function App() {
       current.map((pin) => (pin.id === id ? { ...pin, ...changes } : pin)),
     );
   const deletePin = () => {
+    if (!activePin) return;
+    setConfirmDelete(true);
+  };
+  const confirmDeletePin = () => {
     const next = pins.filter((pin) => pin.id !== activeId);
     setPins(next);
     setActiveId(next[0]?.id ?? null);
+    setConfirmDelete(false);
   };
   const addByCoordinates = (event) => {
     event.preventDefault();
@@ -212,13 +173,21 @@ export default function App() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div className="brand">
+        <a className="brand brand-button" href="#home">
           <span className="brand-mark">⌖</span>
           <span>pin atlas</span>
-        </div>
-        <div className="saved-state">
-          <i></i>
-          {loaded ? "Saved locally" : "Loading your pins…"}
+        </a>
+        <div className="topbar-actions">
+          <a className="nav-home" href="#home">
+            Home
+          </a>
+          <a className="nav-home" href="#data">
+            My Data
+          </a>
+          <div className="saved-state">
+            <i></i>
+            {loaded ? "Saved locally" : "Loading your pins…"}
+          </div>
         </div>
       </header>
       <section className="workspace">
@@ -276,8 +245,9 @@ export default function App() {
             <span>Show all cards on map</span>
           </label>
           <p className="hint">
-            Search a city or landmark, click the map, or drag a pin to fine-tune
-            it.
+            Turn on “Show all cards” to place labels beside pins with matching
+            coloured leader lines so nearby cards do not overlap. Search a city,
+            click the map, or drag a pin to fine-tune it.
           </p>
           <div className="place-list">
             {pins.map((pin) => (
@@ -330,11 +300,12 @@ export default function App() {
                   <h1>{activePin.title || "Untitled place"}</h1>
                 </div>
                 <button
+                  type="button"
                   className="delete"
                   onClick={deletePin}
                   aria-label="Delete selected pin"
                 >
-                  ⌫
+                  <TrashIcon />
                 </button>
               </div>
               <label className="field-label">
@@ -415,6 +386,33 @@ export default function App() {
           )}
         </aside>
       </section>
+      <ConfirmModal
+        open={confirmDelete}
+        title="Delete this place?"
+        message={
+          activePin
+            ? `“${activePin.title || "Untitled place"}” will be removed from this device.`
+            : ""
+        }
+        confirmLabel="Delete"
+        onConfirm={confirmDeletePin}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </main>
   );
+}
+
+export default function App() {
+  const [page, setPage] = useState(getPageFromHash);
+
+  useEffect(() => {
+    const sync = () => setPage(getPageFromHash());
+    window.addEventListener("hashchange", sync);
+    return () => window.removeEventListener("hashchange", sync);
+  }, []);
+
+  if (page === "home") return <Home />;
+  if (page === "data") return <MyData />;
+  if (page === "dashboard") return <Dashboard />;
+  return <MapWorkspace />;
 }
