@@ -14,15 +14,23 @@ function cardWidthFor(size) {
   return size.x < 420 ? 108 : 132;
 }
 
-function stemFor(size) {
-  return size.x < 420 ? 40 : 58;
-}
-
 function layoutLeaderCards(entries, size) {
   const width = size.x;
   const height = size.y;
   const cardW = cardWidthFor(size);
-  const stem = stemFor(size);
+  const points = entries.map(({ point }) => point);
+  const laneX = {
+    left: PAD,
+    right: width - PAD - cardW,
+  };
+  const sideFor = () => {
+    const score = (side) =>
+      points.filter(
+        (other) =>
+          other.x >= laneX[side] - 18 && other.x <= laneX[side] + cardW + 18,
+      ).length;
+    return score("left") <= score("right") ? "left" : "right";
+  };
 
   const items = entries.map(({ pin, point }) => ({
     id: pin.id,
@@ -31,14 +39,8 @@ function layoutLeaderCards(entries, size) {
     py: point.y,
     w: cardW,
     h: estimateCardHeight(pin),
-    side: point.x < width / 2 ? "left" : "right",
+    side: sideFor(),
   }));
-
-  for (const item of items) {
-    if (item.side === "left" && item.px < PAD + item.w + 28) item.side = "right";
-    if (item.side === "right" && item.px > width - PAD - item.w - 28)
-      item.side = "left";
-  }
 
   const pack = (side) => {
     const group = items
@@ -46,46 +48,38 @@ function layoutLeaderCards(entries, size) {
       .sort((a, b) => a.py - b.py || a.px - b.px);
     if (!group.length) return;
 
+    const placed = [];
     for (const item of group) {
-      item.x =
-        side === "left"
-          ? Math.max(PAD, item.px - stem - item.w)
-          : Math.min(width - PAD - item.w, item.px + stem);
-      item.y = item.py - item.h / 2;
-    }
-
-    const total =
-      group.reduce((sum, item) => sum + item.h, 0) +
-      GAP * Math.max(0, group.length - 1);
-    const available = Math.max(80, height - PAD * 2);
-    let gap = GAP;
-    if (total > available) {
-      const scale = available / total;
-      for (const item of group) item.h = Math.max(34, item.h * scale);
-      gap = Math.max(4, GAP * scale);
-    }
-
-    for (let i = 1; i < group.length; i++) {
-      const prev = group[i - 1];
-      const cur = group[i];
-      const minY = prev.y + prev.h + gap;
-      if (cur.y < minY) cur.y = minY;
-    }
-
-    const last = group[group.length - 1];
-    if (last.y + last.h > height - PAD) last.y = height - PAD - last.h;
-    for (let i = group.length - 2; i >= 0; i--) {
-      const next = group[i + 1];
-      const cur = group[i];
-      const maxY = next.y - cur.h - gap;
-      if (cur.y > maxY) cur.y = maxY;
-    }
-    if (group[0].y < PAD) {
-      const shift = PAD - group[0].y;
-      for (const item of group) item.y += shift;
-    }
-
-    for (const item of group) {
+      item.x = laneX[side];
+      const maxY = Math.max(PAD, height - PAD - item.h);
+      const clampY = (value) => Math.min(maxY, Math.max(PAD, value));
+      const desiredY = clampY(item.py - item.h / 2);
+      const candidates = [desiredY, PAD, maxY];
+      for (const point of points) {
+        candidates.push(clampY(point.y - item.h - 20));
+        candidates.push(clampY(point.y + 20));
+      }
+      for (const previous of placed) {
+        candidates.push(clampY(previous.y - item.h - GAP));
+        candidates.push(clampY(previous.y + previous.h + GAP));
+      }
+      const clearsPins = (y) =>
+        points.every(
+          (point) =>
+            point.x < item.x - 20 ||
+            point.x > item.x + item.w + 20 ||
+            point.y < y - 20 ||
+            point.y > y + item.h + 20,
+        );
+      const clearsCards = (y) =>
+        placed.every(
+          (previous) => y + item.h + GAP <= previous.y || y >= previous.y + previous.h + GAP,
+        );
+      const openSlot = candidates
+        .filter((y) => clearsPins(y) && clearsCards(y))
+        .sort((a, b) => Math.abs(a - desiredY) - Math.abs(b - desiredY))[0];
+      item.y = openSlot ?? desiredY;
+      placed.push(item);
       item.attachX = side === "left" ? item.x + item.w : item.x;
       item.attachY = item.y + Math.min(16, item.h / 2);
     }

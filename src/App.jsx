@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   GeoJSON,
   MapContainer,
@@ -16,6 +16,9 @@ import Dashboard from "./Dashboard";
 import Home from "./Home";
 import LeaderCards from "./LeaderCards";
 import MyData from "./MyData";
+import ExportPdfModal from "./ExportPdfModal";
+import { downloadPinReport } from "./pdfReport";
+import { countriesForPins } from "./countries";
 
 function getPageFromHash() {
   const hash = window.location.hash.replace(/^#\/?/, "");
@@ -115,13 +118,69 @@ function PlainLand() {
   return <GeoJSON data={land} style={landStyle} interactive={false} />;
 }
 
-function MapView({ pins, activeId, showMapCard, plainMap, onDrop, onSelect, onMove }) {
+function ReportMapController({ report, onReady }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!report?.pins.length) return undefined;
+    const container = map.getContainer();
+    const previous = { center: map.getCenter(), zoom: map.getZoom(), height: container.style.height };
+    let restored = false;
+    let timer;
+    const restore = () => {
+      if (restored) return;
+      restored = true;
+      container.style.height = previous.height;
+      map.invalidateSize({ animate: false });
+      map.setView(previous.center, previous.zoom, { animate: false });
+    };
+    container.style.height = `${Math.round(container.clientWidth / 1.6)}px`;
+    map.invalidateSize({ animate: false });
+    const frame = requestAnimationFrame(() => {
+      if (report.country) {
+        map.fitBounds(L.geoJSON(report.country.feature).getBounds(), {
+          animate: false,
+          padding: [32, 32],
+        });
+      } else if (report.pins.length === 1) {
+        map.setView([report.pins[0].lat, report.pins[0].lng], Math.max(map.getZoom(), 5), { animate: false });
+      } else {
+        map.fitBounds(report.pins.map((pin) => [pin.lat, pin.lng]), {
+          animate: false,
+          padding: [80, 110],
+          maxZoom: 6,
+        });
+      }
+      timer = window.setTimeout(() => onReady(container, restore), 350);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+      restore();
+    };
+  }, [map, onReady, report]);
+
+  return null;
+}
+
+function MapView({
+  pins,
+  activeId,
+  showMapCard,
+  plainMap,
+  report,
+  onReportReady,
+  onDrop,
+  onSelect,
+  onMove,
+}) {
+  const displayPins = report?.pins || pins;
   return (
     <MapContainer
       center={[22, 8]}
       zoom={2}
       minZoom={2}
-      className={`map${plainMap ? " is-plain" : ""}`}
+      className={`map${plainMap ? " is-plain" : ""}${report ? " is-reporting" : ""}`}
       worldCopyJump
       doubleClickZoom={false}
       attributionControl={false}
@@ -133,7 +192,7 @@ function MapView({ pins, activeId, showMapCard, plainMap, onDrop, onSelect, onMo
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
       )}
       <PinDropper onDrop={onDrop} />
-      {pins.map((pin) => (
+      {displayPins.map((pin) => (
         <Marker
           key={pin.id}
           position={[pin.lat, pin.lng]}
@@ -145,9 +204,19 @@ function MapView({ pins, activeId, showMapCard, plainMap, onDrop, onSelect, onMo
           }}
         />
       ))}
-      {showMapCard && (
-        <LeaderCards pins={pins} activeId={activeId} onSelect={onSelect} />
+      {(showMapCard || report) && (
+        <LeaderCards pins={displayPins} activeId={activeId} onSelect={onSelect} />
       )}
+      {report?.country && (
+        <>
+          <GeoJSON
+            data={report.country.feature}
+            interactive={false}
+            style={{ color: "#355a30", weight: 2, fillOpacity: 0 }}
+          />
+        </>
+      )}
+      {report && <ReportMapController report={report} onReady={onReportReady} />}
     </MapContainer>
   );
 }
@@ -162,6 +231,9 @@ function MapWorkspace() {
   const [showMapCard, setShowMapCard] = useState(false);
   const [plainMap, setPlainMap] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [report, setReport] = useState(null);
+  const [exportError, setExportError] = useState("");
 
   useEffect(() => {
     getPins()
@@ -249,6 +321,56 @@ function MapWorkspace() {
     reader.readAsDataURL(file);
     event.target.value = "";
   };
+  const startPdfExport = async (selectedPins) => {
+    setExportError("");
+    try {
+      const groups = await countriesForPins(selectedPins);
+      if (groups.length > 1) {
+        downloadPinReport({ country: groups });
+        setExportModalOpen(false);
+        return;
+      }
+      const country = groups[0]?.country;
+      if (country) {
+        downloadPinReport({
+          pins: selectedPins,
+          country,
+          countryName: country.name,
+        });
+        setExportModalOpen(false);
+        return;
+      }
+      setReport({ pins: selectedPins, country: null });
+    } catch {
+      setReport({ pins: selectedPins, country: null });
+    }
+  };
+  const capturePdfMap = useCallback(
+    async (mapElement, restoreMap) => {
+      try {
+        const { default: html2canvas } = await import("html2canvas");
+        const canvas = await html2canvas(mapElement, {
+          backgroundColor: "#6eb4ea",
+          logging: false,
+          scale: 2,
+          useCORS: true,
+        });
+        downloadPinReport({
+          pins: report.pins,
+          mapImage: canvas.toDataURL("image/png"),
+          country: report.country,
+          countryName: report.country?.name,
+        });
+        setExportModalOpen(false);
+      } catch {
+        setExportError("Could not capture the map. Try the plain map setting and export again.");
+      } finally {
+        restoreMap();
+        setReport(null);
+      }
+    },
+    [report],
+  );
 
   return (
     <main className="app-shell">
@@ -332,6 +454,15 @@ function MapWorkspace() {
             />{" "}
             <span>Show all cards on map</span>
           </label>
+          <button
+            type="button"
+            className="export-pdf-button"
+            onClick={() => setExportModalOpen(true)}
+            disabled={!pins.length}
+          >
+            Export PDF report
+          </button>
+          {exportError && <p className="export-error">{exportError}</p>}
           <p className="hint">
             Turn off “Plain map” to bring back streets and labels. Turn on
             “Show all cards” to place labels beside pins with matching coloured
@@ -362,6 +493,8 @@ function MapWorkspace() {
             activeId={activeId}
             showMapCard={showMapCard}
             plainMap={plainMap}
+            report={report}
+            onReportReady={capturePdfMap}
             onDrop={({ lat, lng }) => addPin(lat, lng)}
             onSelect={setActiveId}
             onMove={(id, { lat, lng }) =>
@@ -499,6 +632,14 @@ function MapWorkspace() {
         onConfirm={confirmDeletePin}
         onCancel={() => setConfirmDelete(false)}
       />
+      {exportModalOpen && (
+        <ExportPdfModal
+          pins={pins}
+        exporting={Boolean(report)}
+          onClose={() => setExportModalOpen(false)}
+          onExport={startPdfExport}
+        />
+      )}
     </main>
   );
 }
