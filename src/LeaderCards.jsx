@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import L from "leaflet";
 import { useMap, useMapEvents } from "react-leaflet";
@@ -141,10 +141,13 @@ export default function LeaderCards({ pins, activeId, onSelect }) {
     });
   }, [relayout]);
 
-  useEffect(() => {
+  // Run before paint when the checkbox mounts this overlay. This prevents the
+  // initial empty layout from being left on screen until the map next moves.
+  useLayoutEffect(() => {
+    map.whenReady(relayout);
     schedule();
     return () => cancelAnimationFrame(frame.current);
-  }, [schedule]);
+  }, [map, relayout, schedule]);
 
   useEffect(() => {
     const layer = layerRef.current;

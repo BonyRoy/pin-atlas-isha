@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  GeoJSON,
   MapContainer,
   Marker,
   TileLayer,
+  useMap,
   useMapEvents,
 } from "react-leaflet";
 import L from "leaflet";
@@ -31,7 +33,34 @@ const blankPin = (lat = 20, lng = 0, title = "Untitled place") => ({
   color: "#ef5b3f",
 });
 function PinDropper({ onDrop }) {
-  useMapEvents({ click: ({ latlng }) => onDrop(latlng) });
+  const clicks = useRef({ count: 0, timer: null });
+
+  useEffect(
+    () => () => {
+      if (clicks.current.timer) clearTimeout(clicks.current.timer);
+    },
+    [],
+  );
+
+  useMapEvents({
+    click: ({ latlng }) => {
+      const pending = clicks.current;
+      if (pending.timer) clearTimeout(pending.timer);
+      pending.count += 1;
+
+      if (pending.count === 3) {
+        pending.count = 0;
+        pending.timer = null;
+        onDrop(latlng);
+        return;
+      }
+
+      pending.timer = setTimeout(() => {
+        pending.count = 0;
+        pending.timer = null;
+      }, 500);
+    },
+  });
   return null;
 }
 function pinIcon(color, active) {
@@ -42,17 +71,67 @@ function pinIcon(color, active) {
     html: `<span class="map-pin ${active ? "is-active" : ""}" style="--pin-color:${color}"><span></span></span>`,
   });
 }
-function MapView({ pins, activeId, showMapCard, onDrop, onSelect, onMove }) {
+
+const landStyle = {
+  fillColor: "#6f9c65",
+  fillOpacity: 1,
+  color: "#527b4c",
+  weight: 1,
+  opacity: 1,
+};
+
+let landPromise;
+function loadLand() {
+  if (!landPromise) {
+    landPromise = fetch(`${import.meta.env.BASE_URL}land-110m.geojson`).then(
+      (response) => response.json(),
+    );
+  }
+  return landPromise;
+}
+
+function MapChrome({ plainMap }) {
+  const map = useMap();
+  useEffect(() => {
+    map.getContainer().classList.toggle("is-plain", plainMap);
+  }, [map, plainMap]);
+  return null;
+}
+
+function PlainLand() {
+  const [land, setLand] = useState(null);
+  useEffect(() => {
+    let active = true;
+    loadLand()
+      .then((data) => {
+        if (active) setLand(data);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+  if (!land) return null;
+  return <GeoJSON data={land} style={landStyle} interactive={false} />;
+}
+
+function MapView({ pins, activeId, showMapCard, plainMap, onDrop, onSelect, onMove }) {
   return (
     <MapContainer
       center={[22, 8]}
       zoom={2}
       minZoom={2}
-      className="map"
+      className={`map${plainMap ? " is-plain" : ""}`}
       worldCopyJump
+      doubleClickZoom={false}
       attributionControl={false}
     >
-      <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+      <MapChrome plainMap={plainMap} />
+      {plainMap ? (
+        <PlainLand />
+      ) : (
+        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+      )}
       <PinDropper onDrop={onDrop} />
       {pins.map((pin) => (
         <Marker
@@ -81,6 +160,7 @@ function MapWorkspace() {
   const [search, setSearch] = useState("");
   const [searchState, setSearchState] = useState("");
   const [showMapCard, setShowMapCard] = useState(false);
+  const [plainMap, setPlainMap] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
@@ -239,15 +319,24 @@ function MapWorkspace() {
           <label className="map-card-toggle">
             <input
               type="checkbox"
+              checked={plainMap}
+              onChange={(event) => setPlainMap(event.target.checked)}
+            />{" "}
+            <span>Plain map</span>
+          </label>
+          <label className="map-card-toggle">
+            <input
+              type="checkbox"
               checked={showMapCard}
               onChange={(event) => setShowMapCard(event.target.checked)}
             />{" "}
             <span>Show all cards on map</span>
           </label>
           <p className="hint">
-            Turn on “Show all cards” to place labels beside pins with matching
-            coloured leader lines so nearby cards do not overlap. Search a city,
-            click the map, or drag a pin to fine-tune it.
+            Turn off “Plain map” to bring back streets and labels. Turn on
+            “Show all cards” to place labels beside pins with matching coloured
+            leader lines so nearby cards do not overlap. Search a city, click
+            the map, or drag a pin to fine-tune it.
           </p>
           <div className="place-list">
             {pins.map((pin) => (
@@ -267,11 +356,12 @@ function MapWorkspace() {
             ))}
           </div>
         </aside>
-        <section className="map-area">
+        <section className={`map-area${plainMap ? " is-plain" : ""}`}>
           <MapView
             pins={pins}
             activeId={activeId}
             showMapCard={showMapCard}
+            plainMap={plainMap}
             onDrop={({ lat, lng }) => addPin(lat, lng)}
             onSelect={setActiveId}
             onMove={(id, { lat, lng }) =>
@@ -281,15 +371,26 @@ function MapWorkspace() {
               })
             }
           />
-          <div className="map-tip">Click to place a pin</div>
-          <a
-            className="map-credit"
-            href="https://www.openstreetmap.org/copyright"
-            target="_blank"
-            rel="noreferrer"
-          >
-            © OpenStreetMap
-          </a>
+          <div className="map-tip">Triple-click to place a pin</div>
+          {plainMap ? (
+            <a
+              className="map-credit"
+              href="https://www.naturalearthdata.com/"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Land: Natural Earth
+            </a>
+          ) : (
+            <a
+              className="map-credit"
+              href="https://www.openstreetmap.org/copyright"
+              target="_blank"
+              rel="noreferrer"
+            >
+              © OpenStreetMap
+            </a>
+          )}
         </section>
         <aside className="details-panel">
           {activePin ? (
