@@ -73,15 +73,15 @@ function countryMapImage(country, pins) {
     }
   };
 
-  context.fillStyle = "#6eb4ea";
+  context.fillStyle = "#e2e3e1";
   context.fillRect(0, 0, canvas.width, canvas.height);
   (country.features || [country.feature])
     .filter((feature) => {
       const [featureWest, featureSouth, featureEast, featureNorth] = feature.bbox || [];
       return featureEast >= viewWest && featureWest <= viewEast && featureNorth >= viewSouth && featureSouth <= viewNorth;
     })
-    .forEach((feature) => drawFeature(feature, "#6f9c65", null));
-  drawFeature(country.feature, "#6f9c65", "#355a30");
+    .forEach((feature) => drawFeature(feature, "#56719a", null));
+  drawFeature(country.feature, "#56719a", "#293649");
 
   const cardGap = 12;
   const cardHeight = Math.min(112, (canvas.height - 52 - cardGap * (pins.length - 1)) / pins.length);

@@ -76,9 +76,9 @@ function pinIcon(color, active) {
 }
 
 const landStyle = {
-  fillColor: "#6f9c65",
+  fillColor: "#56719a",
   fillOpacity: 1,
-  color: "#527b4c",
+  color: "#3f5371",
   weight: 1,
   opacity: 1,
 };
@@ -212,7 +212,7 @@ function MapView({
           <GeoJSON
             data={report.country.feature}
             interactive={false}
-            style={{ color: "#355a30", weight: 2, fillOpacity: 0 }}
+            style={{ color: "#293649", weight: 2, fillOpacity: 0 }}
           />
         </>
       )}
@@ -350,7 +350,7 @@ function MapWorkspace() {
       try {
         const { default: html2canvas } = await import("html2canvas");
         const canvas = await html2canvas(mapElement, {
-          backgroundColor: "#6eb4ea",
+          backgroundColor: "#e2e3e1",
           logging: false,
           scale: 2,
           useCORS: true,
